@@ -1,0 +1,44 @@
+from math import*
+import os
+import matplotlib.pyplot as plt
+
+#вариант 7
+
+#создание директории
+if not os.path.isdir("results"):
+os.mkdir("results")
+
+#программа
+
+A=512
+def y(x):
+return - (A + 47) * sin(sqrt(abs(x/2 + (A + 47)))) - x * sin(sqrt(abs(x - (A + 47))))
+X=[]
+Y=[]
+
+os.chdir("results")
+f=open('res1.xml','w')
+f.write('<?xml version="1.1" encoding="UTF-8" ?>\n')
+f.write('<data>\n\t')
+f.write('<row>\n\t\t')
+
+i=-512
+while (i<513):
+
+X.append(i)
+Y.append(y(i))
+
+i=i+1
+for i in X:
+f.write('<x>{:.1f}</x>\n\t\t'.format(i))
+f.write('</1x>\n\t')
+f.write('<1y>\n\t')
+for i in Y:
+f.write('<y>{:.3f}</y>\n\t\t'.format(i))
+
+f.write('</2y>\n\t')
+f.write('</2x>\n')
+
+f.close()
+plt.plot(X,Y)
+plt.show()
