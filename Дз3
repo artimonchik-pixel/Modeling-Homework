@@ -1,0 +1,116 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+
+# Параметры моделирования
+dx = 0.01  # пространственный шаг (м)
+dt = dx / (2 * 3e8)  # временной шаг (с)
+nx = int(3.5 / dx)  # количество точек по пространству
+nt = 2000  # количество временных шагов
+eps = 8.0  # относительная диэлектрическая проницаемость
+
+# Параметры источника
+source_pos = int(nx / 3)  # позиция источника в первой трети
+probe_pos = int(2 * nx / 3)  # позиция датчика
+
+# Параметры сигнала
+f_min = 0.1e9  # минимальная частота (Гц)
+f_max = 2.2e9  # максимальная частота (Гц)
+t0 = 50 * dt  # время центра импульса
+sigma = 1 / (np.pi * (f_max - f_min))  # ширина импульса
+
+# Инициализация полей
+Ey = np.zeros(nx)
+Hz = np.zeros(nx)
+
+# Массивы для хранения истории поля в точке датчика
+probe_E = np.zeros(nt)
+probe_H = np.zeros(nt)
+
+# Коэффициенты для граничных условий
+# ABC второй степени справа
+abc_coeff = np.zeros(3)
+abc_prev = np.zeros((2, 3))
+
+# Основной цикл моделирования
+for t in range(nt):
+    # Обновление магнитного поля
+    for i in range(nx - 1):
+        Hz[i] += (Ey[i + 1] - Ey[i]) * dt / (dx * 1.2566e-6)
+    
+    # Граничные условия для Hz
+    # PMC слева (Hz = 0)
+    Hz[0] = 0
+    
+    # ABC второй степени справа
+    Hz[-1] = abc_coeff[0] * abc_prev[0, 0] + abc_coeff[1] * abc_prev[0, 1] + abc_coeff[2] * abc_prev[0, 2]
+    abc_prev[0, 2] = abc_prev[0, 1]
+    abc_prev[0, 1] = abc_prev[0, 0]
+    abc_prev[0, 0] = Hz[-2]
+    
+    # Обновление электрического поля
+    for i in range(1, nx):
+        if i == source_pos:
+            # Источник дифференцированного гауссова импульса
+            pulse = (t * dt - t0) * np.exp(-0.5 * ((t * dt - t0) / sigma) ** 2)
+            Ey[i] += (Hz[i] - Hz[i - 1]) * dt / (dx * 8.854e-12 * eps) - pulse
+        else:
+            Ey[i] += (Hz[i] - Hz[i - 1]) * dt / (dx * 8.854e-12 * eps)
+    
+    # Граничные условия для Ey
+    # PMC слева (Ey продолжается)
+    Ey[0] = Ey[1]
+    
+    # ABC второй степени справа
+    Ey[-1] = abc_coeff[0] * abc_prev[1, 0] + abc_coeff[1] * abc_prev[1, 1] + abc_coeff[2] * abc_prev[1, 2]
+    abc_prev[1, 2] = abc_prev[1, 1]
+    abc_prev[1, 1] = abc_prev[1, 0]
+    abc_prev[1, 0] = Ey[-2]
+    
+    # Сохранение поля в точке датчика
+    probe_E[t] = Ey[probe_pos]
+    probe_H[t] = Hz[probe_pos]
+
+# Визуализация результатов
+plt.figure(figsize=(12, 8))
+
+# Временной сигнал
+plt.subplot(2, 1, 1)
+plt.plot(np.arange(nt) * dt * 1e9, probe_E)
+plt.title('Временной сигнал в точке датчика')
+plt.xlabel('Время (нс)')
+plt.ylabel('Ey (В/м)')
+plt.grid()
+
+# Нормированный амплитудный спектр
+plt.subplot(2, 1, 2)
+fft_E = np.abs(np.fft.fft(probe_E))
+freq = np.fft.fftfreq(nt, dt) / 1e9  # в ГГц
+plt.plot(freq[:nt//2], fft_E[:nt//2] / np.max(fft_E))
+plt.title('Нормированный амплитудный спектр')
+plt.xlabel('Частота (ГГц)')
+plt.ylabel('Нормированная амплитуда')
+plt.xlim(0, 3)
+plt.grid()
+
+plt.tight_layout()
+plt.show()
+
+# Анимация распространения волны
+fig, ax = plt.subplots()
+line, = ax.plot(np.arange(nx) * dx, Ey)
+ax.axvline(source_pos * dx, color='r', linestyle='--', label='Источник')
+ax.axvline(probe_pos * dx, color='g', linestyle='--', label='Датчик')
+ax.set_xlabel('Положение (м)')
+ax.set_ylabel('Ey (В/м)')
+ax.set_title('Распространение электромагнитной волны')
+ax.legend()
+ax.grid()
+
+def update(frame):
+    # Обновление полей (аналогично основному циклу)
+    line.set_ydata(Ey)
+    return line,
+
+ani = FuncAnimation(fig, update, frames=nt, interval=50, blit=True)
+plt.show()
