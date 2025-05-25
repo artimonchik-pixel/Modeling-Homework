@@ -1,0 +1,135 @@
+import urllib.request
+import re
+import numpy as np
+from scipy.special import spherical_jn, spherical_yn
+import matplotlib.pyplot as plt
+import xml.etree.ElementTree as ET
+import csv
+
+class SphereRCSCalculator:
+    def __init__(self):
+        self.c = 299792458  # скорость света в м/с
+        
+    def download_task_file(self):
+        """Загрузка файла с параметрами"""
+        url = "https://jenyay.net/uploads/Student/Modelling/task_rcs_02.csv"
+        with urllib.request.urlopen(url) as response:
+            return response.read().decode('utf-8')
+        
+    def parse_task_file(self, content):
+        """Парсинг CSV файла и извлечение всех вариантов"""
+        reader = csv.DictReader(content.splitlines())
+        variants = []
+        for row in reader:
+            variants.append({
+                'variant': int(row['Вариант']),
+                'D': float(row['D']),
+                'fmin': float(row['fmin']),
+                'fmax': float(row['fmax'])
+            })
+        return variants
+    
+    def calculate_rcs(self, D, fmin, fmax, num_points=300):
+        """Расчет ЭПР для заданных параметров"""
+        radius = D / 2
+        frequencies = np.linspace(fmin, fmax, num_points)
+        rcs_values = []
+        
+        for f in frequencies:
+            wavelength = self.c / f
+            k = 2 * np.pi / wavelength
+            kr = k * radius
+            
+            sum_series = 0
+            n = 1
+            while True:
+                jn = spherical_jn(n, kr)
+                yn = spherical_yn(n, kr)
+                jn_der = spherical_jn(n, kr, derivative=True)
+                yn_der = spherical_yn(n, kr, derivative=True)
+                
+                hn = jn + 1j * yn
+                hn_der = jn_der + 1j * yn_der
+                
+                a_n = (kr * jn_der) / (kr * hn_der)
+                b_n = jn / hn
+                
+                term = (-1)**n * (n + 0.5) * (b_n - a_n)
+                sum_series += term
+                
+                if n > 1 and abs(term) < 1e-6:
+                    break
+                    
+                n += 1
+                
+            rcs = (wavelength**2 / np.pi) * abs(sum_series)**2
+            rcs_values.append(rcs)
+            
+        return frequencies, rcs_values
+    
+    def save_results_xml(self, variant, frequencies, rcs_values):
+        """Сохранение результатов в XML формате (вариант 2)"""
+        root = ET.Element("data")
+        
+        for freq, rcs in zip(frequencies, rcs_values):
+            row = ET.SubElement(root, "row")
+            ET.SubElement(row, "freq").text = f"{freq:.6f}"
+            ET.SubElement(row, "lambda").text = f"{self.c / freq:.6e}"
+            ET.SubElement(row, "rcs").text = f"{rcs:.6e}"
+        
+        filename = f"result_v{variant}.xml"
+        tree = ET.ElementTree(root)
+        tree.write(filename, encoding='utf-8', xml_declaration=True)
+        return filename
+    
+    def plot_results(self, variant, D, frequencies, rcs_values):
+        """Построение и сохранение графика"""
+        plt.figure(figsize=(10, 6))
+        plt.plot(frequencies, rcs_values, linewidth=2)
+        plt.xscale('log')
+        plt.yscale('log')
+        plt.title(f"ЭПР идеально проводящей сферы (D={D} м)\nВариант {variant}")
+        plt.xlabel("Частота, Гц")
+        plt.ylabel("ЭПР, м²")
+        plt.grid(True, which="both", linestyle='--')
+        
+        filename = f"rcs_v{variant}.png"
+        plt.savefig(filename, dpi=300)
+        plt.close()
+        return filename
+
+def main():
+    print("Расчет ЭПР для всех вариантов из файла task_rcs_02.csv")
+    
+    calculator = SphereRCSCalculator()
+    
+    try:
+        # Загрузка и парсинг файла с параметрами
+        content = calculator.download_task_file()
+        variants = calculator.parse_task_file(content)
+        
+        # Обработка каждого варианта
+        for params in variants:
+            variant = params['variant']
+            D = params['D']
+            fmin = params['fmin']
+            fmax = params['fmax']
+            
+            print(f"\nОбработка варианта {variant}:")
+            print(f"Диаметр: {D} м, Частоты: {fmin/1e6:.2f}-{fmax/1e6:.2f} МГц")
+            
+            # Расчет ЭПР
+            frequencies, rcs_values = calculator.calculate_rcs(D, fmin, fmax)
+            
+            # Сохранение результатов
+            xml_file = calculator.save_results_xml(variant, frequencies, rcs_values)
+            plot_file = calculator.plot_results(variant, D, frequencies, rcs_values)
+            
+            print(f"Результаты сохранены в {xml_file}")
+            print(f"График сохранен в {plot_file}")
+            
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
+
+if __name__ == "__main__":
+    main()
